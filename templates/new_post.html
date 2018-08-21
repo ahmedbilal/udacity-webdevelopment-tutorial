@@ -1,0 +1,16 @@
+<style>
+    .error{
+        color:red;
+    }
+</style>
+
+<form method="post">
+    <label for="subject">Subject</label>
+    <input type="text" id="subject" name="subject" value="{{ subject }}">
+
+    <label for="content">Content</label>
+    <textarea cols="10" rows="10" id="content" name="content">{{ content }}</textarea>
+    <span class="error">{{ error }}</span>
+    <br>
+    <input type="submit" />
+</form>

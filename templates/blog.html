@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <a href="/blog/newpost" class="btn btn-primary">New Post</a>
+
+    {% for post in blog_post %}
+        <h2><a href="/blog/{{ post.id }}">{{ post.subject }}</a></h2>
+        <em>{{ post.publish_date }}</em>
+        <p>
+            {{ post.body }}
+        </p>
+    {% endfor %}
+
+{% endblock %}

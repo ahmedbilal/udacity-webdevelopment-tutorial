@@ -1,30 +1,13 @@
-from peewee import *
-import datetime
-
-
-# Setting up PeeWee with Postgres
-db = PostgresqlDatabase('postgres', user='postgres', password='',
-                        host='localhost', port=5432)
-
-db.connect()
+from google.appengine.ext import ndb
 
 # Model
-class BlogPost(Model):
-    subject = CharField()
-    body = TextField()
-    publish_date = DateTimeField(default=datetime.datetime.now())
-
-    class Meta:
-        database = db
-
-class User(Model):
-    username = CharField()
-    password = CharField()
-    email = CharField()
-
-    class Meta:
-        database = db
+class BlogPost(ndb.Model):
+    subject = ndb.StringProperty(indexed=True)
+    body = ndb.TextProperty()
+    publish_date = ndb.DateTimeProperty(auto_now_add=True)
 
 
-# db.drop_tables([BlogPost])
-db.create_tables([BlogPost, User])
+class User(ndb.Model):
+    username = ndb.StringProperty(indexed=True)
+    password = ndb.StringProperty()
+    email = ndb.StringProperty()

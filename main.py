@@ -4,11 +4,13 @@ import datetime
 import hmac
 from os.path import join, dirname
 from models import BlogPost, User
+from google.appengine.api import memcache
+
 import webapp2
 import jinja2
 from utility import make_secure_val, init_hmac, ret_secure_val
-from peewee import DoesNotExist
 import json
+import logging
 
 # Setting up Jinja2
 template_dir = join(dirname(__file__), "templates")
@@ -25,6 +27,10 @@ class Handler(webapp2.RequestHandler):
 
     def render(self, template, **kw):
         self.write(self.render_str(template, **kw))
+
+class HelloWorldApp(webapp2.RequestHandler):
+    def get(self):
+        self.response.write("Hello, Udacity")
 
 class Rot13App(webapp2.RequestHandler):
     form = """
@@ -57,7 +63,9 @@ class Rot13App(webapp2.RequestHandler):
         return cgi.escape(rotated_string)
 
     def get(self):
-        self.response.write(self.form.format(content=""))
+        # print("hi")
+        # return self.response.out.write("Hello World")
+        self.response.out.write(self.form.format(content=""))
     
     def post(self):
         text = self.request.get("text")
@@ -86,16 +94,18 @@ class LoginApp(Handler):
 
         # if both username is filled and password is filled then go down this road
         if username and password:
-            try:
-                user = User.get(User.username == username)
+            user = User.query(User.username == username).fetch(1)
+            if user:
+                user = user[0]
+
                 if user.password != password:
                     password_error = "password is wrong."
-            except DoesNotExist:
+            else:
                 username_error = "{username} does not exists".format(username=username)
             
             if not username_error and not password_error:
                 self.response.headers.add_header("Set-Cookie", "user={}; Domain=127.0.0.1; Path=/; Max-Age=1200".\
-                                      format(make_secure_val(str(user.id))))
+                                      format(make_secure_val(str(user.key.id()))))
                 webapp2.redirect('/welcome', response=self.response)
         
         self.render("login.html", username = username, password = password, 
@@ -142,18 +152,19 @@ class SignupApp(Handler):
             verify_error = "Password and Verify password must be same"
         if email and not self.is_email_valid(email):
             email_error = "Invalid Email"
-        try:
-            user = User.get(User.username == username)
-            username_error = "User with '" + user.username + "' exists"
-        except DoesNotExist:
-            if not username_error and not password_error and not verify_error and not email_error:
-                user = User.create(username=username, password=password, email=email)
-                user.save()
 
-                self.response.headers.add_header("Set-Cookie", "user={}; Domain=127.0.0.1; Path=/; Max-Age=60".\
-                                      format(make_secure_val(str(user.id))))
-                # self.response.set_cookie('user', str(user.id), path='/', domain="127.0.0.1")
-                webapp2.redirect('/welcome', response=self.response)
+        # user = User.query(User.username == "hello")
+        # print(user)
+        # username_error = "User with '" + user.username + "' exists"
+
+        if not username_error and not password_error and not verify_error and not email_error:
+            user = User(username=username, password=password, email=email)
+            user = user.put()
+
+            self.response.headers.add_header("Set-Cookie", "user={}; Domain=127.0.0.1; Path=/; Max-Age=60".\
+                                    format(make_secure_val(str(user.id()))))
+            # self.response.set_cookie('user', str(user.id), path='/', domain="127.0.0.1")
+            webapp2.redirect('/welcome', response=self.response)
         
         self.render("signup.html", username_error=username_error, password_error=password_error,
                                              verify_error=verify_error, email_error=email_error,
@@ -163,13 +174,13 @@ class SignupApp(Handler):
 class LogoutApp(Handler):
     def get(self):
         user_id = self.request.cookies.get('user')
-        if user_id:
-            user_id = ret_secure_val(user_id)
-        else:
+        if not user_id:
             return webapp2.redirect('/signup')
-
-        self.response.headers.add_header("Set-Cookie", "user={}; Domain=127.0.0.1; Path=/; Max-Age=-60".\
-                                      format(make_secure_val(str(user_id))))
+        user_id = user_id.encode("ascii", "ignore")
+        print("USER_ID", user_id)
+        self.response.delete_cookie(key="user", domain="127.0.0.1")
+        # self.response.headers.add_header("Set-Cookie", "user=; Domain=127.0.0.1; Path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT".\
+        #                             format(user_id.encode("ascii", "ignore")))
         return webapp2.redirect('/signup')
 
 class WelcomeApp(webapp2.RequestHandler):
@@ -179,6 +190,7 @@ class WelcomeApp(webapp2.RequestHandler):
 
     def get(self):
         user_id = self.request.cookies.get('user')
+        print("User", user_id)
         if user_id:
             user_id = ret_secure_val(user_id)
         if user_id is None:
@@ -186,13 +198,31 @@ class WelcomeApp(webapp2.RequestHandler):
         username = User.get_by_id(user_id).username
         self.response.write(self.output.format(username=username))
 
+
+CACHE = {}
+
+def get_front_page():
+    all_posts = CACHE.get("all_posts")
+    if all_posts:
+        logging.info("Getting front page from cache")
+        return CACHE["all_posts"]
+    else:
+        logging.error("Going to db to fetch blog list")
+        CACHE["all_posts"] = {"data": BlogPost.query(), "time": datetime.datetime.now()}
+        return get_front_page()
+
 class BlogPostList(Handler):
     def get(self):
-        self.render("blog.html", blog_post=BlogPost.select())
+        front_page = get_front_page()
+        Posts = front_page['data']
+        last_updated = front_page['time'].strftime("%d-%m-%Y %H:%M") + "+0000"
+        print("LAST", last_updated)
+        self.render("blog.html", blog_post=Posts, last_updated = last_updated)
 
 class BlogPostDetail(Handler):
     def get(self, blogpost_id):
-        self.render("post.html", post=BlogPost.get_by_id(blogpost_id))
+        Post = BlogPost.get_by_id(int(blogpost_id))
+        self.render("post.html", post=Post)
 
 class NewPostApp(Handler):
     def get(self):
@@ -212,14 +242,16 @@ class NewPostApp(Handler):
         if error:
             self.render("new_post.html", error=error, subject=subject, content=content)
         else:
-            p = BlogPost.create(subject=subject, body=content)
-            p.save()
-            self.redirect("/blog/" + str(p.id))
+            p = BlogPost(subject=subject, body=content)
+            p = p.put()
+            if 'all_posts' in CACHE.keys():
+                del CACHE['all_posts']
+            self.redirect("/blog/" + str(p.id()))
 
 class BlogPostDetailJson(Handler):
     def get(self, blogpost_id):
         self.response.headers['Content-Type'] = 'application/json'
-        post = BlogPost.get_by_id(blogpost_id)
+        post = BlogPost.get_by_id(int(blogpost_id))
         post_detail = {
                     "subject": post.subject,
                     "content": post.body,
@@ -230,11 +262,11 @@ class BlogPostDetailJson(Handler):
 
 class BlogPostListJson(Handler):
     def get(self):
-        posts = BlogPost.select()
+        posts = BlogPost.query()
         self.response.headers['Content-Type'] = 'application/json'
         result = []
         for post in posts:
-            _id = post.id
+            _id = post.key.id()
             subject = post.subject
             body = post.body
             publish_date = post.publish_date
@@ -244,10 +276,11 @@ class BlogPostListJson(Handler):
                     "created": str(publish_date),
                 })
         self.response.out.write(json.dumps(result))
-        # return json.dumps()
+
 
 app = webapp2.WSGIApplication([
     ('/', Rot13App),
+    ('/hello', HelloWorldApp),
     ('/signup', SignupApp),
     ('/login', LoginApp),
     ('/logout', LogoutApp),
@@ -260,10 +293,10 @@ app = webapp2.WSGIApplication([
 ], debug=True)
 
 
-def main():
-    from paste import httpserver
-    httpserver.serve(app, host='127.0.0.1', port='8090')
+# def main():
+#     from paste import httpserver
+#     httpserver.serve(app, host='127.0.0.1', port='8090')
 
 
-if __name__ == '__main__':
-    main()
+# if __name__ == '__main__':
+#     main()

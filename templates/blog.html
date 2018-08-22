@@ -4,11 +4,18 @@
     <a href="/blog/newpost" class="btn btn-primary">New Post</a>
 
     {% for post in blog_post %}
-        <h2><a href="/blog/{{ post.id }}">{{ post.subject }}</a></h2>
+        <h2><a href="/blog/{{ post.key.id() }}">{{ post.subject }}</a></h2>
         <em>{{ post.publish_date }}</em>
         <p>
             {{ post.body }}
         </p>
     {% endfor %}
 
+    <span id="last_updated" style="font-weight: bold">Queried </span>
+    <script>
+        $(document).ready(function(){
+            $("#last_updated").append(document.createTextNode(moment("{{ last_updated }}", "DD-MM-YYYY HH:mm Z").fromNow()));
+        });
+        
+    </script>
 {% endblock %}
